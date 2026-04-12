@@ -56,9 +56,11 @@ MAX_RETRIES = 3
 
 
 def extrair_precos(texto: str) -> list:
-    matches = re.findall(r"R\$\s*[\d\.]+(?:,\d+)?", texto)
     prices = []
-    for m in matches:
+
+    # Padrão 1: com R$ (ex: R$ 1.234,56)
+    matches1 = re.findall(r"R\$\s*[\d\.]+(?:,\d+)?", texto)
+    for m in matches1:
         try:
             limpo = m.replace("R$", "").strip()
             if "," in limpo:
@@ -66,10 +68,23 @@ def extrair_precos(texto: str) -> list:
             else:
                 limpo = limpo.replace(".", "")
             val = float(limpo)
-            if val > 50:
+            if val > 500:
                 prices.append(val)
         except ValueError:
             continue
+
+    # Padrão 2: sem R$ mas com formato BR (ex: 9.291 ou 13.172)
+    if not prices:
+        matches2 = re.findall(r"\b\d{1,2}\.\d{3}(?:,\d{2})?\b", texto)
+        for m in matches2:
+            try:
+                limpo = m.replace(".", "").replace(",", ".")
+                val = float(limpo)
+                if 500 < val < 100000:
+                    prices.append(val)
+            except ValueError:
+                continue
+
     return prices
 
 
@@ -191,14 +206,12 @@ async def main():
 
         page = await context.new_page()
 
-        # Consulta voos
         print("--- VOOS ---")
         for search in VOOS:
             price = await get_price(page, search["url"], search["label"])
             voos_results.append({**search, "price": price})
             await asyncio.sleep(5)
 
-        # Consulta hotéis
         print("--- HOTEL ---")
         for search in HOTEIS:
             price = await get_price(page, search["url"], search["label"])
@@ -207,7 +220,6 @@ async def main():
 
         await browser.close()
 
-    # Monta mensagem
     linhas_voos = "\n".join(
         f"{'✅' if r['price'] != 'N/A' else '⚠️'} *{r['label']}* → {r['price']}"
         for r in voos_results
