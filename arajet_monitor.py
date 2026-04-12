@@ -1,6 +1,7 @@
 """
-Arajet Price Monitor — via Kayak
-Rota: GRU → PUJ | 1 adulto | voo direto | só Arajet
+Monitor de Viagem — Voos + Hotel
+Voos: GRU → PUJ via Kayak | 1 adulto
+Hotel: Bahia Principe Aquamarine | 2 adultos
 Horários: 08h e 20h (horário de Brasília)
 Notificação: Telegram + CSV local
 """
@@ -19,7 +20,7 @@ import httpx
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "SEU_BOT_TOKEN_AQUI")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "SEU_CHAT_ID_AQUI")
 
-SEARCHES = [
+VOOS = [
     {
         "label": "24/12 → 01/01",
         "url": "https://www.kayak.com.br/flights/GRU-PUJ/2026-12-24/2027-01-01?ucs=jng4sy&sort=bestflight_a&fs=airlines%3D-X1%2CLA%3Bstops%3D0"
@@ -35,6 +36,17 @@ SEARCHES = [
     {
         "label": "05/02 → 12/02",
         "url": "https://www.kayak.com.br/flights/GRU-PUJ/2027-02-05/2027-02-12?fs=airlines%3D-X1%2CLA%3Bstops%3D0%3BfdDir%3Dtrue&ucs=jng4sy&sort=bestflight_a"
+    },
+]
+
+HOTEIS = [
+    {
+        "label": "25/12 → 01/01",
+        "url": "https://pt.book.bahia-principe.com/bookcore/availability/bpgrandaqua/2026-12-25/2027-01-01/2/0/?rrc=1&adults=2&occupancies=%255B%257B%2522adults%2522%253A%25202%252C%2520%2522children%2522%253A%25200%252C%2520%2522ages%2522%253A%2520%2522%2522%257D%255D&occp=1"
+    },
+    {
+        "label": "05/02 → 12/02",
+        "url": "https://pt.book.bahia-principe.com/bookcore/availability/bpgrandaqua/2027-02-06/2027-02-12/2/0/?rrc=1&adults=2&occupancies=%255B%257B%2522adults%2522%253A%25202%252C%2520%2522children%2522%253A%25200%252C%2520%2522ages%2522%253A%2520%2522%2522%257D%255D&occp=1"
     },
 ]
 
@@ -122,16 +134,18 @@ async def get_price(page, url: str, label: str) -> str:
     return "N/A"
 
 
-def save_to_csv(results: list):
+def save_to_csv(voos: list, hoteis: list):
     file_exists = os.path.exists(CSV_FILE)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["Data/Hora", "Trecho", "Menor Preço"])
-        for r in results:
-            writer.writerow([now, r["label"], r["price"]])
+            writer.writerow(["Data/Hora", "Tipo", "Trecho", "Menor Preço"])
+        for r in voos:
+            writer.writerow([now, "Voo", r["label"], r["price"]])
+        for r in hoteis:
+            writer.writerow([now, "Hotel", r["label"], r["price"]])
 
 
 async def send_telegram(message: str):
@@ -150,7 +164,8 @@ async def main():
     now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
     print(f"[{now_str}] Iniciando consultas...")
 
-    results = []
+    voos_results = []
+    hoteis_results = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -176,33 +191,46 @@ async def main():
 
         page = await context.new_page()
 
-        for search in SEARCHES:
+        # Consulta voos
+        print("--- VOOS ---")
+        for search in VOOS:
             price = await get_price(page, search["url"], search["label"])
-            results.append({**search, "price": price})
+            voos_results.append({**search, "price": price})
+            await asyncio.sleep(5)
+
+        # Consulta hotéis
+        print("--- HOTEL ---")
+        for search in HOTEIS:
+            price = await get_price(page, search["url"], search["label"])
+            hoteis_results.append({**search, "price": price})
             await asyncio.sleep(5)
 
         await browser.close()
 
-    total_na = sum(1 for r in results if r["price"] == "N/A")
-    linhas = "\n".join(
+    # Monta mensagem
+    linhas_voos = "\n".join(
         f"{'✅' if r['price'] != 'N/A' else '⚠️'} *{r['label']}* → {r['price']}"
-        for r in results
+        for r in voos_results
     )
 
-    rodape = "_Preços para 1 adulto em BRL | Kayak_"
-    if total_na == len(results):
-        rodape += "\n⚠️ _Site bloqueando. Tente novamente mais tarde._"
+    linhas_hoteis = "\n".join(
+        f"{'✅' if r['price'] != 'N/A' else '⚠️'} *{r['label']}* → {r['price']}"
+        for r in hoteis_results
+    )
 
     message = (
-        f"✈️ *Arajet Monitor | GRU → PUJ*\n"
+        f"✈️ *Arajet | GRU → PUJ*\n"
         f"🕐 {now_str}\n"
         f"────────────────\n"
-        f"{linhas}\n"
+        f"{linhas_voos}\n"
         f"────────────────\n"
-        f"{rodape}"
+        f"🏨 *Bahia Principe Aquamarine*\n"
+        f"{linhas_hoteis}\n"
+        f"────────────────\n"
+        f"_Preços em BRL | Kayak + Bahia Principe_"
     )
 
-    save_to_csv(results)
+    save_to_csv(voos_results, hoteis_results)
     await send_telegram(message)
     print("[OK] Mensagem enviada.")
 
