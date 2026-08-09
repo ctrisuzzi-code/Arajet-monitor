@@ -22,8 +22,16 @@ TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "SEU_CHAT_ID_AQUI")
 
 VOOS = [
     {
+        "label": "24/12 → 31/12",
+        "url": "https://www.kayak.com.br/flights/GRU-PUJ/2026-12-24/2026-12-31?ucs=jng4sy&sort=bestflight_a&fs=airlines%3D-X1%2CLA%3Bstops%3D0"
+    },
+    {
         "label": "24/12 → 01/01",
         "url": "https://www.kayak.com.br/flights/GRU-PUJ/2026-12-24/2027-01-01?ucs=jng4sy&sort=bestflight_a&fs=airlines%3D-X1%2CLA%3Bstops%3D0"
+    },
+    {
+        "label": "25/12 → 31/12",
+        "url": "https://www.kayak.com.br/flights/GRU-PUJ/2026-12-25/2026-12-31?fs=airlines%3D-X1%2CLA%3Bstops%3D0%3BfdDir%3Dtrue&ucs=jng4sy&sort=bestflight_a"
     },
     {
         "label": "25/12 → 01/01",
@@ -40,6 +48,14 @@ VOOS = [
 ]
 
 HOTEIS = [
+    {
+        "label": "24/12 → 31/12",
+        "url": "https://pt.book.bahia-principe.com/bookcore/availability/bpgrandaqua/2026-12-24/2026-12-31/2/0/?rrc=1&adults=2&occupancies=%255B%257B%2522adults%2522%253A%25202%252C%2520%2522children%2522%253A%25200%252C%2520%2522ages%2522%253A%2520%2522%2522%257D%255D&occp=1"
+    },
+    {
+        "label": "25/12 → 31/12",
+        "url": "https://pt.book.bahia-principe.com/bookcore/availability/bpgrandaqua/2026-12-25/2026-12-31/2/0/?rrc=1&adults=2&occupancies=%255B%257B%2522adults%2522%253A%25202%252C%2520%2522children%2522%253A%25200%252C%2520%2522ages%2522%253A%2520%2522%2522%257D%255D&occp=1"
+    },
     {
         "label": "25/12 → 01/01",
         "url": "https://pt.book.bahia-principe.com/bookcore/availability/bpgrandaqua/2026-12-25/2027-01-01/2/0/?rrc=1&adults=2&occupancies=%255B%257B%2522adults%2522%253A%25202%252C%2520%2522children%2522%253A%25200%252C%2520%2522ages%2522%253A%2520%2522%2522%257D%255D&occp=1"
@@ -231,7 +247,7 @@ async def main():
     )
 
     message = (
-        f"✈️ *Arajet | GRU → PUJ*\n"
+        f"✈ *Arajet | GRU → PUJ*\n"
         f"🕐 {now_str}\n"
         f"────────────────\n"
         f"{linhas_voos}\n"
