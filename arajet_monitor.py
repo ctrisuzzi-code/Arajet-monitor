@@ -1,11 +1,7 @@
 """
-Arajet Price Monitor — Multi-datas
-Rota: GRU → PUJ | 1 adulto
-Pesquisas:
-  1. 24/12/2026 → 01/01/2027
-  2. 25/12/2026 → 01/01/2027
-  3. 05/02/2027 → 10/02/2027
-  4. 05/02/2027 → 12/02/2027
+Monitor de Viagem — Voos + Hotel
+Voos: GRU → PUJ via Kayak | 1 adulto
+Hotel: Bahia Principe Aquamarine | 2 adultos
 Horários: 08h e 20h (horário de Brasília)
 Notificação: Telegram + CSV local
 """
@@ -21,61 +17,169 @@ import httpx
 # ─────────────────────────────────────────
 # CONFIGURAÇÕES
 # ─────────────────────────────────────────
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "SEU_BOT_TOKEN_AQUI")
-TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "SEU_CHAT_ID_AQUI")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN_SCL", "SEU_BOT_TOKEN_AQUI")
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID_SCL",   "SEU_CHAT_ID_AQUI")
 
-SEARCHES = [
-    {"from": "2026-12-24", "to": "2027-01-01", "label": "24/12 → 01/01"},
-    {"from": "2026-12-25", "to": "2027-01-01", "label": "25/12 → 01/01"},
-    {"from": "2027-02-05", "to": "2027-02-10", "label": "05/02 → 10/02"},
-    {"from": "2027-02-05", "to": "2027-02-12", "label": "05/02 → 12/02"},
+VOOS = [
+    {
+        "label": "24/12 → 31/12",
+        "url": "https://www.kayak.com.br/flights/GRU-PUJ/2026-12-24/2026-12-31?ucs=jng4sy&sort=bestflight_a&fs=airlines%3D-X1%2CLA%3Bstops%3D0"
+    },
+    {
+        "label": "24/12 → 01/01",
+        "url": "https://www.kayak.com.br/flights/GRU-PUJ/2026-12-24/2027-01-01?ucs=jng4sy&sort=bestflight_a&fs=airlines%3D-X1%2CLA%3Bstops%3D0"
+    },
+    {
+        "label": "25/12 → 31/12",
+        "url": "https://www.kayak.com.br/flights/GRU-PUJ/2026-12-25/2026-12-31?fs=airlines%3D-X1%2CLA%3Bstops%3D0%3BfdDir%3Dtrue&ucs=jng4sy&sort=bestflight_a"
+    },
+    {
+        "label": "25/12 → 01/01",
+        "url": "https://www.kayak.com.br/flights/GRU-PUJ/2026-12-25/2027-01-01?fs=airlines%3D-X1%2CLA%3Bstops%3D0%3BfdDir%3Dtrue&ucs=jng4sy&sort=bestflight_a"
+    },
+    {
+        "label": "05/02 → 10/02",
+        "url": "https://www.kayak.com.br/flights/GRU-PUJ/2027-02-05/2027-02-10?fs=airlines%3D-X1%2CLA%3Bstops%3D0%3BfdDir%3Dtrue&ucs=jng4sy&sort=bestflight_a"
+    },
+    {
+        "label": "05/02 → 12/02",
+        "url": "https://www.kayak.com.br/flights/GRU-PUJ/2027-02-05/2027-02-12?fs=airlines%3D-X1%2CLA%3Bstops%3D0%3BfdDir%3Dtrue&ucs=jng4sy&sort=bestflight_a"
+    },
 ]
 
-BASE_URL = (
-    "https://www.arajet.com/pt-br/booking"
-    "?origin=GRU&destination=PUJ&adt=1"
-    "&currency=BRL&from={from}&to={to}"
-)
+HOTEIS = [
+    {
+        "label": "24/12 → 31/12",
+        "url": "https://pt.book.bahia-principe.com/bookcore/availability/bpgrandaqua/2026-12-24/2026-12-31/2/0/?rrc=1&adults=2&occupancies=%255B%257B%2522adults%2522%253A%25202%252C%2520%2522children%2522%253A%25200%252C%2520%2522ages%2522%253A%2520%2522%2522%257D%255D&occp=1"
+    },
+    {
+        "label": "25/12 → 31/12",
+        "url": "https://pt.book.bahia-principe.com/bookcore/availability/bpgrandaqua/2026-12-25/2026-12-31/2/0/?rrc=1&adults=2&occupancies=%255B%257B%2522adults%2522%253A%25202%252C%2520%2522children%2522%253A%25200%252C%2520%2522ages%2522%253A%2520%2522%2522%257D%255D&occp=1"
+    },
+    {
+        "label": "25/12 → 01/01",
+        "url": "https://pt.book.bahia-principe.com/bookcore/availability/bpgrandaqua/2026-12-25/2027-01-01/2/0/?rrc=1&adults=2&occupancies=%255B%257B%2522adults%2522%253A%25202%252C%2520%2522children%2522%253A%25200%252C%2520%2522ages%2522%253A%2520%2522%2522%257D%255D&occp=1"
+    },
+    {
+        "label": "05/02 → 12/02",
+        "url": "https://pt.book.bahia-principe.com/bookcore/availability/bpgrandaqua/2027-02-06/2027-02-12/2/0/?rrc=1&adults=2&occupancies=%255B%257B%2522adults%2522%253A%25202%252C%2520%2522children%2522%253A%25200%252C%2520%2522ages%2522%253A%2520%2522%2522%257D%255D&occp=1"
+    },
+]
 
 CSV_FILE = "historico_precos.csv"
 MAX_RETRIES = 3
 # ─────────────────────────────────────────
 
 
-def extrair_precos(texto: str) -> list:
-    """Extrai todos os valores numéricos precedidos de R$ de um texto."""
-    # Suporta formatos: R$ 1.234,56 | R$1234.56 | R$ 1234
-    matches = re.findall(r"R\$\s*[\d\.]+(?:,\d+)?", texto)
-    prices = []
+def parse_preco_voo(texto: str) -> float | None:
+    """Extrai preço de voo do texto do card — só aceita valores com R$."""
+    matches = re.findall(r"R\$\s*([\d\.]+(?:,\d+)?)", texto)
+    valores = []
     for m in matches:
         try:
-            limpo = m.replace("R$", "").strip()
-            # Formato BR: 1.234,56
-            if "," in limpo:
-                limpo = limpo.replace(".", "").replace(",", ".")
-            else:
-                limpo = limpo.replace(".", "")
-            val = float(limpo)
-            if val > 50:  # filtra valores absurdamente baixos (taxas, etc)
-                prices.append(val)
+            limpo = m.replace(".", "").replace(",", ".")
+            valores.append(float(limpo))
         except ValueError:
             continue
-    return prices
+    # Retorna o menor valor encontrado no card
+    return min(valores) if valores else None
 
 
-async def get_price(page, url: str, label: str) -> str:
-    """Tenta capturar o menor preço com múltiplas estratégias e retry."""
-
+async def get_price_from_flight_card(page, url: str, label: str) -> str:
+    """Captura preço do primeiro card de voo da Arajet na página."""
     for tentativa in range(1, MAX_RETRIES + 1):
         print(f"  [{label}] Tentativa {tentativa}/{MAX_RETRIES}...")
         try:
-            # Navega com tempo generoso
             await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+            await asyncio.sleep(12)
 
-            # Espera extra para JS carregar os preços
-            await asyncio.sleep(8)
+            # Fecha popups
+            for selector in ["button:has-text('Aceitar')", "button:has-text('Accept')",
+                              "button:has-text('Fechar')", "[aria-label='Close']",
+                              "button:has-text('OK')"]:
+                try:
+                    btn = page.locator(selector).first
+                    if await btn.is_visible(timeout=2000):
+                        await btn.click()
+                        await asyncio.sleep(2)
+                except Exception:
+                    pass
 
-            # Tenta fechar popups/cookies se existirem
+            # Aguarda resultados
+            try:
+                await page.wait_for_selector("text=R$", timeout=20000)
+            except PlaywrightTimeout:
+                print(f"  [{label}] Página sem preços visíveis.")
+                continue
+
+            # Tenta capturar cards que contenham "Arajet" no texto
+            preco = None
+            try:
+                # Busca todos os resultados de voo
+                cards = await page.locator("[class*='result']").all()
+                for card in cards:
+                    texto_card = await card.inner_text()
+
+                    # Ignora cards de hotel/hospedagem/anúncio
+                    if any(x in texto_card.lower() for x in [
+                        "noite", "hotel", "resort", "apart", "hosped",
+                        "anúncio", "anuncio", "ver oferta", "search for"
+                    ]):
+                        continue
+
+                    # Só processa cards com "arajet" ou com rotas GRU/PUJ
+                    if not any(x in texto_card.lower() for x in ["arajet", "gru", "puj"]):
+                        continue
+
+                    val = parse_preco_voo(texto_card)
+                    if val:
+                        if preco is None or val < preco:
+                            preco = val
+
+            except Exception as e:
+                print(f"  [{label}] Erro nos cards: {e}")
+
+            # Fallback: pega preços da área de resultados principal
+            if not preco:
+                try:
+                    # Pega o texto da área de resultados excluindo rodapé
+                    resultado_area = page.locator("[class*='resultsList'], [class*='results-list'], main").first
+                    texto_area = await resultado_area.inner_text()
+
+                    # Remove seção de hospedagens se presente
+                    if "hospedagem" in texto_area.lower():
+                        texto_area = texto_area[:texto_area.lower().index("hospedagem")]
+
+                    val = parse_preco_voo(texto_area)
+                    if val:
+                        preco = val
+                except Exception:
+                    pass
+
+            if preco:
+                formatado = f"R$ {preco:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                print(f"  [{label}] Preço: {formatado}")
+                return formatado
+            else:
+                print(f"  [{label}] Preço não encontrado.")
+                await page.screenshot(path=f"debug_{label.replace('/', '-')}_{tentativa}.png")
+
+        except Exception as e:
+            print(f"  [{label}] Erro: {e}")
+
+        await asyncio.sleep(10)
+
+    return "N/A"
+
+
+async def get_hotel_price(page, url: str, label: str) -> str:
+    """Captura menor preço do hotel Bahia Príncipe."""
+    for tentativa in range(1, MAX_RETRIES + 1):
+        print(f"  [Hotel {label}] Tentativa {tentativa}/{MAX_RETRIES}...")
+        try:
+            await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+            await asyncio.sleep(12)
+
             for selector in ["button:has-text('Aceitar')", "button:has-text('Accept')",
                               "button:has-text('Fechar')", "[aria-label='Close']"]:
                 try:
@@ -86,66 +190,72 @@ async def get_price(page, url: str, label: str) -> str:
                 except Exception:
                     pass
 
-            # Aguarda conteúdo de preço aparecer (vários seletores possíveis)
-            seletores = [
-                "text=R$",
-                "[class*='price']",
-                "[class*='fare']",
-                "[class*='amount']",
-                "[class*='valor']",
-            ]
+            seletores = ["text=R$", "[class*='price']", "[class*='amount']", "[class*='valor']"]
             encontrou = False
             for sel in seletores:
                 try:
                     await page.wait_for_selector(sel, timeout=15000)
                     encontrou = True
-                    print(f"  [{label}] Seletor encontrado: {sel}")
                     break
                 except PlaywrightTimeout:
                     continue
 
             if not encontrou:
-                print(f"  [{label}] Nenhum seletor de preço encontrado.")
-                await asyncio.sleep(5)
                 continue
 
-            # Extrai todo o texto da página e procura preços
             conteudo = await page.inner_text("body")
-            prices = extrair_precos(conteudo)
 
-            if prices:
-                valor = min(prices)
-                formatado = f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                print(f"  [{label}] Preço capturado: {formatado}")
+            # Padrão 1: com R$
+            matches = re.findall(r"R\$\s*([\d\.]+(?:,\d+)?)", conteudo)
+            valores = []
+            for m in matches:
+                try:
+                    limpo = m.replace(".", "").replace(",", ".")
+                    valores.append(float(limpo))
+                except ValueError:
+                    continue
+
+            # Padrão 2: formato BR sem R$
+            if not valores:
+                matches2 = re.findall(r"\b\d{1,2}\.\d{3}(?:,\d{2})?\b", conteudo)
+                for m in matches2:
+                    try:
+                        limpo = m.replace(".", "").replace(",", ".")
+                        val = float(limpo)
+                        if 500 < val < 100000:
+                            valores.append(val)
+                    except ValueError:
+                        continue
+
+            if valores:
+                preco = min(valores)
+                formatado = f"R$ {preco:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                print(f"  [Hotel {label}] Preço: {formatado}")
                 return formatado
-            else:
-                print(f"  [{label}] Texto da página não contém preços reconhecíveis.")
-                # Salva screenshot para debug
-                await page.screenshot(path=f"debug_{label.replace('/', '-')}_{tentativa}.png")
 
         except Exception as e:
-            print(f"  [{label}] Erro na tentativa {tentativa}: {e}")
+            print(f"  [Hotel {label}] Erro: {e}")
 
-        await asyncio.sleep(10)  # pausa antes de retry
+        await asyncio.sleep(10)
 
     return "N/A"
 
 
-def save_to_csv(results: list):
-    """Salva todos os resultados da rodada no CSV histórico."""
+def save_to_csv(voos: list, hoteis: list):
     file_exists = os.path.exists(CSV_FILE)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["Data/Hora", "Trecho", "Ida", "Volta", "Menor Preço"])
-        for r in results:
-            writer.writerow([now, r["label"], r["from"], r["to"], r["price"]])
+            writer.writerow(["Data/Hora", "Tipo", "Trecho", "Menor Preço"])
+        for r in voos:
+            writer.writerow([now, "Voo", r["label"], r["price"]])
+        for r in hoteis:
+            writer.writerow([now, "Hotel", r["label"], r["price"]])
 
 
 async def send_telegram(message: str):
-    """Envia mensagem via Telegram Bot API."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     async with httpx.AsyncClient() as client:
         resp = await client.post(url, json={
@@ -161,15 +271,13 @@ async def main():
     now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
     print(f"[{now_str}] Iniciando consultas...")
 
-    results = []
+    voos_results = []
+    hoteis_results = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-blink-features=AutomationControlled",
-            ]
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
         )
         context = await browser.new_context(
             user_agent=(
@@ -180,43 +288,49 @@ async def main():
             viewport={"width": 1280, "height": 800},
             locale="pt-BR",
         )
-
-        # Oculta sinais de automação
         await context.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         """)
 
         page = await context.new_page()
 
-        for search in SEARCHES:
-            url = BASE_URL.format(**search)
-            price = await get_price(page, url, search["label"])
-            results.append({**search, "price": price})
-            await asyncio.sleep(5)  # pausa entre buscas
+        print("--- VOOS ---")
+        for search in VOOS:
+            price = await get_price_from_flight_card(page, search["url"], search["label"])
+            voos_results.append({**search, "price": price})
+            await asyncio.sleep(5)
+
+        print("--- HOTEL ---")
+        for search in HOTEIS:
+            price = await get_hotel_price(page, search["url"], search["label"])
+            hoteis_results.append({**search, "price": price})
+            await asyncio.sleep(5)
 
         await browser.close()
 
-    # Monta mensagem do Telegram
-    total_na = sum(1 for r in results if r["price"] == "N/A")
-    linhas = "\n".join(
+    linhas_voos = "\n".join(
         f"{'✅' if r['price'] != 'N/A' else '⚠️'} *{r['label']}* → {r['price']}"
-        for r in results
+        for r in voos_results
     )
 
-    rodape = "_Preços para 1 adulto em BRL_"
-    if total_na == len(results):
-        rodape += "\n⚠️ _Site pode estar bloqueando. Tente novamente mais tarde._"
+    linhas_hoteis = "\n".join(
+        f"{'✅' if r['price'] != 'N/A' else '⚠️'} *{r['label']}* → {r['price']}"
+        for r in hoteis_results
+    )
 
     message = (
-        f"✈️ *Arajet Monitor | GRU → PUJ*\n"
+        f"✈️ *Arajet | GRU → PUJ*\n"
         f"🕐 {now_str}\n"
         f"────────────────\n"
-        f"{linhas}\n"
+        f"{linhas_voos}\n"
         f"────────────────\n"
-        f"{rodape}"
+        f"🏨 *Bahia Principe Aquamarine*\n"
+        f"{linhas_hoteis}\n"
+        f"────────────────\n"
+        f"_Preços em BRL | Kayak + Bahia Principe_"
     )
 
-    save_to_csv(results)
+    save_to_csv(voos_results, hoteis_results)
     await send_telegram(message)
     print("[OK] Mensagem enviada.")
 
