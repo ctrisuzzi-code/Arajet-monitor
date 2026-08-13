@@ -17,8 +17,8 @@ import httpx
 # ─────────────────────────────────────────
 # CONFIGURAÇÕES
 # ─────────────────────────────────────────
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN_SCL", "SEU_BOT_TOKEN_AQUI")
-TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID_SCL",   "SEU_CHAT_ID_AQUI")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "SEU_BOT_TOKEN_AQUI")
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "SEU_CHAT_ID_AQUI")
 
 VOOS = [
     {
@@ -71,29 +71,67 @@ MAX_RETRIES = 3
 # ─────────────────────────────────────────
 
 
-def parse_preco_voo(texto: str) -> float | None:
-    """Extrai preço de voo do texto do card — só aceita valores com R$."""
+def extrair_preco_voo(texto: str) -> float | None:
+    """
+    Extrai o menor preço de voo do texto da página.
+    Corta o texto antes de seções de hospedagem para evitar preços de hotel.
+    """
+    # Remove seção de hospedagens se presente
+    cortes = ["hospedagem", "hotel", "resort", "noite", "pesquisar hospedagem"]
+    for corte in cortes:
+        idx = texto.lower().find(corte)
+        if idx > 500:  # só corta se houver conteúdo de voo antes
+            texto = texto[:idx]
+
     matches = re.findall(r"R\$\s*([\d\.]+(?:,\d+)?)", texto)
     valores = []
     for m in matches:
         try:
             limpo = m.replace(".", "").replace(",", ".")
-            valores.append(float(limpo))
+            val = float(limpo)
+            if val > 100:
+                valores.append(val)
         except ValueError:
             continue
-    # Retorna o menor valor encontrado no card
     return min(valores) if valores else None
 
 
-async def get_price_from_flight_card(page, url: str, label: str) -> str:
-    """Captura preço do primeiro card de voo da Arajet na página."""
+def extrair_preco_hotel(texto: str) -> float | None:
+    """Extrai menor preço do texto do hotel."""
+    # Padrão 1: com R$
+    matches = re.findall(r"R\$\s*([\d\.]+(?:,\d+)?)", texto)
+    valores = []
+    for m in matches:
+        try:
+            limpo = m.replace(".", "").replace(",", ".")
+            val = float(limpo)
+            if val > 100:
+                valores.append(val)
+        except ValueError:
+            continue
+
+    # Padrão 2: formato BR sem R$
+    if not valores:
+        matches2 = re.findall(r"\b\d{1,2}\.\d{3}(?:,\d{2})?\b", texto)
+        for m in matches2:
+            try:
+                limpo = m.replace(".", "").replace(",", ".")
+                val = float(limpo)
+                if 500 < val < 100000:
+                    valores.append(val)
+            except ValueError:
+                continue
+
+    return min(valores) if valores else None
+
+
+async def get_price(page, url: str, label: str, tipo: str = "voo") -> str:
     for tentativa in range(1, MAX_RETRIES + 1):
         print(f"  [{label}] Tentativa {tentativa}/{MAX_RETRIES}...")
         try:
             await page.goto(url, timeout=90000, wait_until="domcontentloaded")
             await asyncio.sleep(12)
 
-            # Fecha popups
             for selector in ["button:has-text('Aceitar')", "button:has-text('Accept')",
                               "button:has-text('Fechar')", "[aria-label='Close']",
                               "button:has-text('OK')"]:
@@ -105,56 +143,29 @@ async def get_price_from_flight_card(page, url: str, label: str) -> str:
                 except Exception:
                     pass
 
-            # Aguarda resultados
-            try:
-                await page.wait_for_selector("text=R$", timeout=20000)
-            except PlaywrightTimeout:
-                print(f"  [{label}] Página sem preços visíveis.")
+            seletores = ["text=R$", "[class*='price']", "[class*='fare']",
+                         "[class*='amount']", "[class*='valor']", "[class*='Price']"]
+            encontrou = False
+            for sel in seletores:
+                try:
+                    await page.wait_for_selector(sel, timeout=15000)
+                    encontrou = True
+                    print(f"  [{label}] Seletor: {sel}")
+                    break
+                except PlaywrightTimeout:
+                    continue
+
+            if not encontrou:
+                print(f"  [{label}] Nenhum seletor encontrado.")
+                await asyncio.sleep(5)
                 continue
 
-            # Tenta capturar cards que contenham "Arajet" no texto
-            preco = None
-            try:
-                # Busca todos os resultados de voo
-                cards = await page.locator("[class*='result']").all()
-                for card in cards:
-                    texto_card = await card.inner_text()
+            conteudo = await page.inner_text("body")
 
-                    # Ignora cards de hotel/hospedagem/anúncio
-                    if any(x in texto_card.lower() for x in [
-                        "noite", "hotel", "resort", "apart", "hosped",
-                        "anúncio", "anuncio", "ver oferta", "search for"
-                    ]):
-                        continue
-
-                    # Só processa cards com "arajet" ou com rotas GRU/PUJ
-                    if not any(x in texto_card.lower() for x in ["arajet", "gru", "puj"]):
-                        continue
-
-                    val = parse_preco_voo(texto_card)
-                    if val:
-                        if preco is None or val < preco:
-                            preco = val
-
-            except Exception as e:
-                print(f"  [{label}] Erro nos cards: {e}")
-
-            # Fallback: pega preços da área de resultados principal
-            if not preco:
-                try:
-                    # Pega o texto da área de resultados excluindo rodapé
-                    resultado_area = page.locator("[class*='resultsList'], [class*='results-list'], main").first
-                    texto_area = await resultado_area.inner_text()
-
-                    # Remove seção de hospedagens se presente
-                    if "hospedagem" in texto_area.lower():
-                        texto_area = texto_area[:texto_area.lower().index("hospedagem")]
-
-                    val = parse_preco_voo(texto_area)
-                    if val:
-                        preco = val
-                except Exception:
-                    pass
+            if tipo == "voo":
+                preco = extrair_preco_voo(conteudo)
+            else:
+                preco = extrair_preco_hotel(conteudo)
 
             if preco:
                 formatado = f"R$ {preco:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -172,79 +183,9 @@ async def get_price_from_flight_card(page, url: str, label: str) -> str:
     return "N/A"
 
 
-async def get_hotel_price(page, url: str, label: str) -> str:
-    """Captura menor preço do hotel Bahia Príncipe."""
-    for tentativa in range(1, MAX_RETRIES + 1):
-        print(f"  [Hotel {label}] Tentativa {tentativa}/{MAX_RETRIES}...")
-        try:
-            await page.goto(url, timeout=90000, wait_until="domcontentloaded")
-            await asyncio.sleep(12)
-
-            for selector in ["button:has-text('Aceitar')", "button:has-text('Accept')",
-                              "button:has-text('Fechar')", "[aria-label='Close']"]:
-                try:
-                    btn = page.locator(selector).first
-                    if await btn.is_visible(timeout=2000):
-                        await btn.click()
-                        await asyncio.sleep(2)
-                except Exception:
-                    pass
-
-            seletores = ["text=R$", "[class*='price']", "[class*='amount']", "[class*='valor']"]
-            encontrou = False
-            for sel in seletores:
-                try:
-                    await page.wait_for_selector(sel, timeout=15000)
-                    encontrou = True
-                    break
-                except PlaywrightTimeout:
-                    continue
-
-            if not encontrou:
-                continue
-
-            conteudo = await page.inner_text("body")
-
-            # Padrão 1: com R$
-            matches = re.findall(r"R\$\s*([\d\.]+(?:,\d+)?)", conteudo)
-            valores = []
-            for m in matches:
-                try:
-                    limpo = m.replace(".", "").replace(",", ".")
-                    valores.append(float(limpo))
-                except ValueError:
-                    continue
-
-            # Padrão 2: formato BR sem R$
-            if not valores:
-                matches2 = re.findall(r"\b\d{1,2}\.\d{3}(?:,\d{2})?\b", conteudo)
-                for m in matches2:
-                    try:
-                        limpo = m.replace(".", "").replace(",", ".")
-                        val = float(limpo)
-                        if 500 < val < 100000:
-                            valores.append(val)
-                    except ValueError:
-                        continue
-
-            if valores:
-                preco = min(valores)
-                formatado = f"R$ {preco:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                print(f"  [Hotel {label}] Preço: {formatado}")
-                return formatado
-
-        except Exception as e:
-            print(f"  [Hotel {label}] Erro: {e}")
-
-        await asyncio.sleep(10)
-
-    return "N/A"
-
-
 def save_to_csv(voos: list, hoteis: list):
     file_exists = os.path.exists(CSV_FILE)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-
     with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         if not file_exists:
@@ -296,13 +237,13 @@ async def main():
 
         print("--- VOOS ---")
         for search in VOOS:
-            price = await get_price_from_flight_card(page, search["url"], search["label"])
+            price = await get_price(page, search["url"], search["label"], tipo="voo")
             voos_results.append({**search, "price": price})
             await asyncio.sleep(5)
 
         print("--- HOTEL ---")
         for search in HOTEIS:
-            price = await get_hotel_price(page, search["url"], search["label"])
+            price = await get_price(page, search["url"], search["label"], tipo="hotel")
             hoteis_results.append({**search, "price": price})
             await asyncio.sleep(5)
 
@@ -312,7 +253,6 @@ async def main():
         f"{'✅' if r['price'] != 'N/A' else '⚠️'} *{r['label']}* → {r['price']}"
         for r in voos_results
     )
-
     linhas_hoteis = "\n".join(
         f"{'✅' if r['price'] != 'N/A' else '⚠️'} *{r['label']}* → {r['price']}"
         for r in hoteis_results
